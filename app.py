@@ -4,11 +4,13 @@ import fitz  # PyMuPDF
 from PIL import Image
 import io
 import requests
+import pandas as pd
+from docx import Document
 
 # --- إعدادات الصفحة ---
-st.set_page_config(page_title="Vision Insight Pro", page_icon="🔮", layout="wide")
+st.set_page_config(page_title="Vision Insight Power", page_icon="🚀", layout="wide")
 
-# --- CSS المطور ---
+# --- CSS التصميم الاحترافي ---
 st.markdown("""
     <style>
     .stApp { background: radial-gradient(circle at top right, #1e1b4b, #0f172a); color: #f8fafc; }
@@ -18,81 +20,103 @@ st.markdown("""
     }
     .stButton>button {
         background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%);
-        color: white; border: none; border-radius: 12px; font-weight: 700;
-        transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
+        color: white; border: none; border-radius: 12px; font-weight: 700; height: 3em;
     }
-    .stButton>button:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(217, 70, 239, 0.5); }
-    h1 { background: linear-gradient(to right, #818cf8, #c084fc, #e879f9); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .download-btn { margin-top: 10px; }
     .status-box { background: rgba(15, 23, 42, 0.6); padding: 20px; border-radius: 15px; border-right: 4px solid #a855f7; }
     </style>
     """, unsafe_allow_html=True)
 
+# --- وظائف التحويل للملفات ---
+def create_word_doc(text):
+    doc = Document()
+    doc.add_heading('نتائج تحليل Vision Insight', 0)
+    doc.add_paragraph(text)
+    bio = io.BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
+
+def create_excel_from_text(text):
+    # محاولة بسيطة لتحويل الجداول النصية (Markdown) إلى DataFrame
+    try:
+        from io import StringIO
+        # البحث عن جداول مارك داون في النص
+        if "|" in text:
+            # تنظيف النص لاستخراج الجدول فقط (تبسيط)
+            lines = [line for line in text.split('\n') if "|" in line]
+            table_str = '\n'.join(lines)
+            df = pd.read_csv(StringIO(table_str.replace(' ', '')), sep="|").dropna(axis=1, how='all')
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Sheet1')
+            return output.getvalue()
+    except:
+        return None
+    return None
+
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown("<h2 style='text-align: center; color: #a855f7;'>🔮 Control Panel</h2>", unsafe_allow_html=True)
+    st.title("🔮 Power Panel")
     api_key = st.text_input("Gemini API Key:", type="password")
-    
-    selected_model = "gemini-1.5-flash"
     if api_key:
-        try:
-            genai.configure(api_key=api_key)
-            models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            selected_model = st.selectbox("Intelligence Level:", models, index=models.index("gemini-1.5-flash") if "gemini-1.5-flash" in models else 0)
-        except: st.error("خطأ في الاتصال")
+        genai.configure(api_key=api_key)
+        model_name = st.selectbox("Model:", ["gemini-1.5-pro", "gemini-1.5-flash"])
 
-st.markdown("<h1 style='text-align: center;'>Vision <span style='color: white;'>Insight</span> Pro</h1>", unsafe_allow_html=True)
+# --- واجهة المستخدم ---
+st.markdown("<h1 style='text-align: center;'>Vision <span style='color: #a855f7;'>Insight</span> Power</h1>", unsafe_allow_html=True)
 
 if api_key:
-    model = genai.GenerativeModel(selected_model)
+    model = genai.GenerativeModel(model_name)
     col1, col2 = st.columns([1, 1.2], gap="large")
     
     with col1:
-        st.markdown("### 📥 مصدر المستند")
-        input_type = st.radio("اختر طريقة الإدخال:", ["رفع ملف (PDF/Image)", "رابط صورة (URL)"])
+        st.markdown("### 📥 المستند أو الرابط")
+        input_mode = st.radio("المصدر:", ["ملف", "رابط"])
+        content_imgs = []
         
-        content_images = []
-        
-        if input_type == "رفع ملف (PDF/Image)":
-            uploaded_file = st.file_uploader("اختر ملفاً", type=["pdf", "png", "jpg", "jpeg"])
-            if uploaded_file:
-                if uploaded_file.type == "application/pdf":
-                    with st.status("جاري معالجة PDF...") as s:
-                        doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-                        for page in doc:
-                            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                            content_images.append(Image.open(io.BytesIO(pix.tobytes("png"))))
-                        s.update(label="تمت المعالجة!", state="complete")
+        if input_mode == "ملف":
+            up = st.file_uploader("", type=["pdf", "png", "jpg", "jpeg"])
+            if up:
+                if up.type == "application/pdf":
+                    doc = fitz.open(stream=up.read(), filetype="pdf")
+                    for p in doc:
+                        pix = p.get_pixmap(matrix=fitz.Matrix(2, 2))
+                        content_imgs.append(Image.open(io.BytesIO(pix.tobytes("png"))))
                 else:
-                    img = Image.open(uploaded_file)
-                    content_images.append(img)
+                    img = Image.open(up)
+                    content_imgs.append(img)
                     st.image(img, use_container_width=True)
-
         else:
-            image_url = st.text_input("ضع رابط الصورة هنا:", placeholder="https://example.com/image.jpg")
-            if image_url:
-                try:
-                    with st.spinner("جاري سحب الصورة من الرابط..."):
-                        response = requests.get(image_url, timeout=10)
-                        img = Image.open(io.BytesIO(response.content))
-                        content_images.append(img)
-                        st.image(img, use_container_width=True, caption="صورة من الرابط")
-                except Exception as e:
-                    st.error(f"تعذر تحميل الصورة: تأكد من صحة الرابط.")
+            url = st.text_input("رابط الصورة:")
+            if url:
+                r = requests.get(url)
+                img = Image.open(io.BytesIO(r.content))
+                content_imgs.append(img)
+                st.image(img, use_container_width=True)
 
     with col2:
-        st.markdown("### 🤖 اسأل الذكاء الاصطناعي")
-        user_query = st.text_area("", placeholder="ماذا تريد أن تعرف عن هذا المحتوى؟", height=150)
+        st.markdown("### 🤖 التحليل والتحويل")
+        q = st.text_area("ماذا نفعل بالبيانات؟", placeholder="مثال: استخرج الجدول المالي، أو اكتب تقريراً كاملاً...")
         
-        if st.button("تحليل المحتوى الآن ✨"):
-            if user_query and content_images:
-                with st.spinner("🧠 تحليل عميق جارٍ..."):
-                    try:
-                        response = model.generate_content([user_query] + content_images)
-                        st.markdown("---")
-                        st.markdown("### 💡 النتيجة:")
-                        st.markdown(f'<div class="status-box">{response.text}</div>', unsafe_allow_html=True)
-                        st.balloons()
-                    except Exception as e: st.error(f"خطأ: {e}")
-            else: st.warning("تأكد من وجود صورة وسؤال!")
+        if st.button("تنفيذ 🚀") and content_imgs:
+            with st.spinner("جاري المعالجة..."):
+                res = model.generate_content([q] + content_imgs)
+                st.session_state['last_res'] = res.text
+                st.markdown(f'<div class="status-box">{res.text}</div>', unsafe_allow_html=True)
+
+        if 'last_res' in st.session_state:
+            st.markdown("### 📥 تحميل النتائج:")
+            c1, c2 = st.columns(2)
+            
+            # زر الوورد
+            word_data = create_word_doc(st.session_state['last_res'])
+            c1.download_button("تحميل ملف Word 📄", word_data, "analysis.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            
+            # زر الإكسيل (يظهر إذا وجد جدول)
+            excel_data = create_excel_from_text(st.session_state['last_res'])
+            if excel_data:
+                c2.download_button("تحميل ملف Excel 📊", excel_data, "data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            else:
+                c2.info("لم يتم العثور على جدول لتحويله لـ Excel")
 else:
-    st.info("👈 ابدأ بإضافة الـ API Key في الجنب")
+    st.warning("الرجاء إدخال الـ API Key")
